@@ -1,0 +1,49 @@
+/* src/App.css - ĐÃ SỬA VÀ TỐI ƯU */
+
+/* Global Styles */
+body {
+  /* Đây là màu nền chuẩn của layout Ant Design, rất tốt! */
+  background-color: #f0f2f5; 
+}
+
+/* Ant Design Layout Styles */
+/* Giữ nguyên các style này, chúng đã đúng */
+.ant-layout {
+  min-height: 100vh;
+}
+
+.site-layout-content {
+  background: #ffffff;
+  padding: 24px;
+  border-radius: 8px;
+}
+
+.ant-layout-header {
+  /* Căn chỉnh menu để không bị dính sát lề */
+  padding-inline: 24px !important;
+}
+
+/* Elevator Card Styles - THÊM CẢI TIẾN */
+.elevator-card {
+  /* Thêm height: 100% để các card trên cùng 1 hàng cao bằng nhau */
+  height: 100%;
+  border-radius: 8px;
+  /* Dùng flexbox để đẩy phần actions (Bảo trì) luôn xuống dưới cùng */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Buộc phần body của card phải giãn ra để chiếm không gian trống */
+.elevator-card .ant-card-body {
+  flex-grow: 1;
+}
+
+/* Giữ nguyên các hiệu ứng hover đẹp mắt của bạn */
+.ant-card-hoverable:hover {
+  border-color: #1677ff;
+  box-shadow: 0 6px 16px 0 rgba(0, 0, 0, 0.08), 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 9px 28px 8px rgba(0, 0, 0, 0.05);
+}
+
+.elevator-card .ant-card-actions > li {
+  padding: 8px 0;
+}
