@@ -1,20 +1,15 @@
-// src/contexts/ElevatorContext.jsx
-
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import { createContext, useState, useEffect, useContext, useMemo } from 'react';
 import { useWebSocket } from './WebSocketContext';
 import { apiService } from '../services/apiService';
 import { message } from 'antd';
 
 const ElevatorContext = createContext(undefined);
-
+const MAX_PATH_LENGTH = 12; 
 export const ElevatorProvider = ({ children }) => {
-  // State được lưu dưới dạng object để truy cập O(1) qua ID
   const [elevators, setElevators] = useState({});
   const [loading, setLoading] = useState(true);
   
   const { socket, isConnected } = useWebSocket();
-
-  // Load dữ liệu ban đầu một lần khi component được mount
   useEffect(() => {
     const fetchInitialData = async () => {
       setLoading(true);
@@ -37,16 +32,13 @@ export const ElevatorProvider = ({ children }) => {
     };
 
     fetchInitialData();
-  }, []);
-
-  // Lắng nghe các sự kiện socket real-time
+  }, []); 
   useEffect(() => {
     if (!isConnected || !socket) {
       return;
     }
 
     const handleElevatorUpdate = (updatedElevator) => {
-      // console.log('>>>> FRONTEND: Đã nhận được sự kiện [elevator_update] với dữ liệu:', updatedElevator);
       setElevators((prevElevators) => {
         const currentElevatorState = prevElevators[updatedElevator.id];
         
@@ -59,17 +51,19 @@ export const ElevatorProvider = ({ children }) => {
             },
           };
         }
-
-        const newElevatorState = { ...currentElevatorState, ...updatedElevator };
-
+        let nextPath = currentElevatorState.path; 
         if (currentElevatorState.currentFloor !== updatedElevator.currentFloor) {
-          const newPath = [...currentElevatorState.path, updatedElevator.currentFloor];
-          if (newPath.length > 10) { // Giới hạn lộ trình
-            newPath.shift(); 
+          const updatedPath = [...currentElevatorState.path, updatedElevator.currentFloor];
+          if (updatedPath.length > MAX_PATH_LENGTH) {
+            updatedPath.shift();
           }
-          newElevatorState.path = newPath;
+          nextPath = updatedPath;
         }
-
+        const newElevatorState = {
+          ...currentElevatorState,
+          ...updatedElevator,
+          path: nextPath, 
+        };
         return {
           ...prevElevators,
           [updatedElevator.id]: newElevatorState,
@@ -78,28 +72,25 @@ export const ElevatorProvider = ({ children }) => {
     };
 
     const handleNewElevator = (newElevator) => {
-      // console.log('>>>> FRONTEND: Đã nhận được sự kiện [new_elevator] với dữ liệu:', newElevator);
       message.success(`Thang máy mới "${newElevator.name}" đã được thêm vào hệ thống.`);
       setElevators((prev) => ({
         ...prev,
         [newElevator.id]: { ...newElevator, path: [newElevator.currentFloor] },
       }));
     };
-
-    // === SỬA LỖI: THAY ĐỔI TÊN SỰ KIỆN ĐỂ KHỚP VỚI BACKEND ===
     socket.on('elevator_update', handleElevatorUpdate);
     socket.on('new_elevator', handleNewElevator);
-
-    // Cleanup listeners
     return () => {
       socket.off('elevator_update', handleElevatorUpdate);
       socket.off('new_elevator', handleNewElevator);
     };
   }, [isConnected, socket]);
+  const sortedElevators = useMemo(() => {
+    return Object.values(elevators).sort((a, b) => a.name.localeCompare(b.name));
+  }, [elevators]);
 
-  // Chuyển đổi từ object state thành array để các component dễ dàng map qua
   return (
-    <ElevatorContext.Provider value={{ elevators: Object.values(elevators).sort((a,b) => a.name.localeCompare(b.name)), loading }}>
+    <ElevatorContext.Provider value={{ elevators: sortedElevators, loading }}>
       {children}
     </ElevatorContext.Provider>
   );

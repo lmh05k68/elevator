@@ -1,3 +1,4 @@
+// BE/src/entities/maintenance.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne } from 'typeorm';
 import { Elevator } from './elevator.entity';
 
@@ -8,12 +9,12 @@ export enum MaintenanceStatus {
   CANCELLED = 'Cancelled',
 }
 
-@Entity()
-export class Maintenance {
+@Entity('maintenance_logs')
+export class MaintenanceLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => Elevator, { eager: true }) // eager: true để tự động load thông tin thang máy khi query
+  @ManyToOne(() => Elevator, (elevator) => elevator.maintenanceLogs, { eager: true, onDelete: 'SET NULL' }) 
   elevator: Elevator;
 
   @Column()

@@ -1,4 +1,5 @@
 // src/pages/DashboardPage.jsx
+
 import { useState } from 'react';
 import { Row, Col, Spin, Button, Modal, Form, Input, InputNumber, message, Empty } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
@@ -11,54 +12,57 @@ const DashboardPage = () => {
   const { elevators, loading } = useElevators();
   const [isElevatorModalOpen, setIsElevatorModalOpen] = useState(false);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
-
-  // State quản lý trạng thái submitting của form
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // TẠO 2 FORM INSTANCE RIÊNG BIỆT - ĐÂY LÀ PHẦN SỬA LỖI QUAN TRỌNG NHẤT
   const [elevatorForm] = Form.useForm();
   const [requestForm] = Form.useForm();
+
   const handleAddElevator = async (values) => {
     setIsSubmitting(true);
     try {
       await apiService.createElevator(values);
       message.success('Tạo thang máy thành công!');
-      setIsElevatorModalOpen(false); // Tự động đóng modal sau khi thành công
+      setIsElevatorModalOpen(false);
+      elevatorForm.resetFields();
     } catch (error) {
       console.error('Failed to create elevator:', error);
-      message.error('Tạo thang máy thất bại!');
+      message.error(error?.response?.data?.message || 'Tạo thang máy thất bại!');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Hàm xử lý cho form tạo yêu cầu
   const handleAddRequest = async (values) => {
     setIsSubmitting(true);
     try {
       await apiService.createRequest(values);
       message.success('Tạo yêu cầu thành công!');
-      setIsRequestModalOpen(false); // Tự động đóng modal sau khi thành công
+      setIsRequestModalOpen(false);
+      requestForm.resetFields();
     } catch (error) {
       console.error('Failed to create request:', error);
-      message.error('Tạo yêu cầu thất bại!');
+      message.error(error?.response?.data?.message || 'Tạo yêu cầu thất bại!');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Hàm hiển thị nội dung chính
+  // Hàm này đã xử lý đúng logic hiển thị
   const renderContent = () => {
     if (loading) {
       return <div style={{ textAlign: 'center', padding: '50px' }}><Spin size="large" /></div>;
     }
 
-    if (elevators.length === 0) {
-      return <Empty description="Chưa có thang máy nào. Hãy thêm một thang máy mới để bắt đầu." />;
+    if (!Array.isArray(elevators) || elevators.length === 0) {
+      return (
+        <div style={{ marginTop: '24px' }}>
+          <Empty description="Chưa có thang máy nào. Hãy thêm một thang máy mới để bắt đầu." />
+        </div>
+      );
     }
 
     return (
-      <Row gutter={[16, 24]}>
+      <Row gutter={[16, 24]} style={{ marginTop: '24px' }}>
         {elevators.map((elevator) => (
           <Col key={elevator.id} xs={24} sm={12} md={8} lg={6}>
             <ElevatorCard elevator={elevator} />
@@ -67,9 +71,13 @@ const DashboardPage = () => {
       </Row>
     );
   }
-  if (!Array.isArray(elevators) || elevators.length === 0) {
-    return <Empty description="Chưa có thang máy nào. Hãy thêm một thang máy mới để bắt đầu." />;
-  }
+
+  // SỬA LỖI: Xóa bỏ khối if-return sớm ở đây.
+  // if (!Array.isArray(elevators) || elevators.length === 0) {
+  //   return <Empty description="Chưa có thang máy nào. Hãy thêm một thang máy mới để bắt đầu." />;
+  // }
+
+  // Khối return chính của component, luôn được render
   return (
     <>
       <PageHeader
@@ -87,21 +95,19 @@ const DashboardPage = () => {
       />
 
       {renderContent()}
-
-      {/* Modal for adding elevator */}
       <Modal
         title="Thêm Thang Máy Mới"
         open={isElevatorModalOpen}
         onCancel={() => setIsElevatorModalOpen(false)}
         onOk={() => elevatorForm.submit()}
         confirmLoading={isSubmitting}
-        destroyOnHidden
+        destroyOnHidden 
       >
         <Form form={elevatorForm} layout="vertical" onFinish={handleAddElevator} name="elevator_form">
           <Form.Item name="name" label="Tên Thang Máy" rules={[{ required: true, message: 'Vui lòng nhập tên!' }]}>
             <Input placeholder="Ví dụ: Thang A, Thang Hàng..." />
           </Form.Item>
-          <Form.Item name="capacity" label="Sức chứa (người)" rules={[{ required: true, message: 'Vui lòng nhập sức chứa!' }]}>
+          <Form.Item name="capacity" label="Sức chứa (người)" initialValue={8} rules={[{ required: true, message: 'Vui lòng nhập sức chứa!' }]}>
             <InputNumber min={1} style={{ width: '100%' }} placeholder="Ví dụ: 8" />
           </Form.Item>
         </Form>
@@ -112,14 +118,14 @@ const DashboardPage = () => {
         onCancel={() => setIsRequestModalOpen(false)}
         onOk={() => requestForm.submit()}
         confirmLoading={isSubmitting}
-        destroyOnHidden
+        destroyOnHidden 
       >
         <Form form={requestForm} layout="vertical" onFinish={handleAddRequest} name="request_form">
           <Form.Item name="fromFloor" label="Từ Tầng" rules={[{ required: true, message: 'Vui lòng nhập tầng đi!' }]}>
-            <InputNumber min={1} style={{ width: '100%' }} />
+            <InputNumber style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="toFloor" label="Đến Tầng" rules={[{ required: true, message: 'Vui lòng nhập tầng đến!' }]}>
-            <InputNumber min={1} style={{ width: '100%' }} />
+            <InputNumber style={{ width: '100%' }} />
           </Form.Item>
         </Form>
       </Modal>

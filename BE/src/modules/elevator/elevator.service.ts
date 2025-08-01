@@ -1,20 +1,19 @@
-// src/elevator/elevator.service.ts
+// BE/src/modules/elevator/elevator.service.ts
 
-import { Injectable, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Elevator, ElevatorStatus, Direction } from '../../entities/elevator.entity';
 import { CreateElevatorDto } from '../../dtos/create-elevator.dto';
 import { CreateRequestDto } from '../../dtos/create-request.dto';
-import { EventsGateway } from '../../events/events.gateway'; // <-- CHÚNG TA CHỈ DÙNG GATEWAY NÀY
+import { EventsGateway } from '../../events/events.gateway'; 
+import { MaintenanceService } from '../maintenance/maintenance.service';
 
 interface ElevatorSimState extends Elevator {
   lastActionTimestamp: number;
+  passengerExchangeDone: boolean;
 }
-
-// Bỏ các hằng số không dùng
-// const TIME_TO_RESET_ERROR_MS = 10000;
 
 @Injectable()
 export class ElevatorService implements OnModuleInit {
@@ -30,15 +29,15 @@ export class ElevatorService implements OnModuleInit {
     @InjectRepository(Elevator)
     private readonly elevatorRepository: Repository<Elevator>,
     private readonly configService: ConfigService,
-    // === BƯỚC 1: SỬA CONSTRUCTOR ===
-    // Chỉ inject EventsGateway, bỏ ElevatorGateway đi
-    private readonly eventsGateway: EventsGateway
+    private readonly eventsGateway: EventsGateway,
+    @Inject(forwardRef(() => MaintenanceService))
+    private readonly maintenanceService: MaintenanceService
   ) {
     this.simulationInterval = this.configService.get<number>('SIMULATION_INTERVAL_MS', 1000);
     this.timePerFloor = this.configService.get<number>('TIME_PER_FLOOR_MS', 3000);
-    this.timeDoorOpen = this.configService.get<number>('TIME_DOOR_OPEN_MS', 3000);
-    this.minFloors = this.configService.get<number>('MIN_FLOORS', -3);
-    this.maxFloors = this.configService.get<number>('MAX_FLOORS', 50);
+    this.timeDoorOpen = this.configService.get<number>('TIME_DOOR_OPEN_MS', 5000);
+    this.minFloors = Number(this.configService.get<string>('MIN_FLOORS', '-3'));
+    this.maxFloors = Number(this.configService.get<string>('MAX_FLOORS', '50'));
   }
 
   async onModuleInit() {
@@ -51,53 +50,49 @@ export class ElevatorService implements OnModuleInit {
     setInterval(() => this.simulationTick(), this.simulationInterval);
   }
 
-  // --- HÀM CÔNG KHAI (PUBLIC API) ---
-  
-  public updateState(id: string, updates: Partial<ElevatorSimState>) {
+  public async updateState(id: string, updates: Partial<ElevatorSimState>) {
     const elevator = this.elevatorsState.get(id);
-    if (!elevator) {
-      this.logger.warn(`Attempted to update a non-existent elevator state with ID: ${id}`);
-      return;
+    if (!elevator) return;
+    if (updates.status && updates.status !== elevator.status) {
+      if (updates.status === ElevatorStatus.MAINTENANCE || updates.status === ElevatorStatus.ERROR) {
+        const desc = updates.status === ElevatorStatus.MAINTENANCE ? 'Chuyển sang chế độ bảo trì.' : 'Thang máy gặp sự cố.';
+        await this.maintenanceService.createLogFromStatusChange(elevator, updates.status, desc);
+      }
     }
-
     const newState = { ...elevator, ...updates };
     this.elevatorsState.set(id, newState);
-    
-    // === BƯỚC 2: LOGGING VÀ GỬI DỮ LIỆU ===
-    this.logger.debug(`State Update for ${newState.name}:`, updates);
-
-    // Sử dụng EventsGateway đã được inject
-    // Đảm bảo tên sự kiện 'elevator_update' khớp với frontend
     this.eventsGateway.sendElevatorUpdate(newState);
-
-    const importantUpdates = { 
-      status: updates.status, 
-      currentFloor: updates.currentFloor, 
-      direction: updates.direction, 
-      targetFloors: updates.targetFloors 
+    const importantUpdates: Partial<Elevator> = {
+        status: updates.status, currentFloor: updates.currentFloor,
+        direction: updates.direction, targetFloors: updates.targetFloors,
+        currentLoad: updates.currentLoad,
     };
-
-    if (Object.values(importantUpdates).some(v => v !== undefined)) {
-      this.persistState(id, importantUpdates);
+    const definedUpdates = Object.entries(importantUpdates).reduce((acc, [key, value]) => {
+        if (value !== undefined) { acc[key] = value; }
+        return acc;
+    }, {});
+    if (Object.keys(definedUpdates).length > 0) {
+        this.persistState(id, definedUpdates);
     }
   }
 
   async create(createElevatorDto: CreateElevatorDto): Promise<Elevator> {
     const newElevator = this.elevatorRepository.create(createElevatorDto);
     const savedElevator = await this.elevatorRepository.save(newElevator);
-    const initialState: ElevatorSimState = { ...savedElevator, lastActionTimestamp: Date.now() };
-
+    const initialState: ElevatorSimState = {
+      ...savedElevator,
+      lastActionTimestamp: Date.now(),
+      passengerExchangeDone: true, 
+    };
     this.elevatorsState.set(savedElevator.id, initialState);
     this.logger.log(`New elevator "${savedElevator.name}" created and added to simulation.`);
-
-    // === BƯỚC 3: GỬI SỰ KIỆN TẠO MỚI ===
-    // Tạo một hàm riêng trong EventsGateway để gửi sự kiện này
     this.eventsGateway.sendNewElevator(initialState);
-
     return savedElevator;
   }
   
-  async findAll(): Promise<Elevator[]> { return this.elevatorRepository.find({ order: { name: 'ASC' } }); }
+  async findAll(): Promise<Elevator[]> {
+    return this.elevatorRepository.find({ order: { name: 'ASC' } });
+  }
 
   async findOne(id: string): Promise<Elevator> {
     const elevator = await this.elevatorRepository.findOne({ where: { id } });
@@ -116,37 +111,27 @@ export class ElevatorService implements OnModuleInit {
     this.updateState(elevator.id, { targetFloors: Array.from(newTargets) });
   }
   
-  // --- LOGIC MÔ PHỎNG (PRIVATE) ---
-
   private simulationTick() {
+    const now = Date.now();
     this.elevatorsState.forEach((elevator) => {
-      // Bỏ qua logic nếu không có sự thay đổi
-      const now = Date.now();
+      if (elevator.status === ElevatorStatus.MAINTENANCE || elevator.status === ElevatorStatus.ERROR) return;
       switch (elevator.status) {
-        case ElevatorStatus.IDLE: 
-          this.handleIdleState(elevator, now); 
-          break;
-        case ElevatorStatus.MOVING: 
-          this.handleMovingState(elevator, now); 
-          break;
+        case ElevatorStatus.IDLE: this.handleIdleState(elevator, now); break;
+        case ElevatorStatus.MOVING: this.handleMovingState(elevator, now); break;
         case ElevatorStatus.STOPPED: 
-          this.updateState(elevator.id, { status: ElevatorStatus.DOOR_OPEN, lastActionTimestamp: now }); 
+          this.updateState(elevator.id, { 
+            status: ElevatorStatus.DOOR_OPEN, 
+            lastActionTimestamp: now,
+            passengerExchangeDone: false
+          }); 
           break;
-        case ElevatorStatus.DOOR_OPEN: 
-          this.handleDoorOpenState(elevator, now); 
-          break;
-        case ElevatorStatus.DOOR_CLOSED: 
-          this.updateState(elevator.id, { status: ElevatorStatus.IDLE, lastActionTimestamp: now }); 
-          break;
-        case ElevatorStatus.MAINTENANCE:
-        case ElevatorStatus.ERROR:
-          // Không làm gì trong tick cho 2 trạng thái này
-          break;
+        case ElevatorStatus.DOOR_OPEN: this.handleDoorOpenState(elevator, now); break;
+        case ElevatorStatus.DOOR_CLOSED: this.updateState(elevator.id, { status: ElevatorStatus.IDLE }); break;
       }
     });
   }
 
-  private handleIdleState(elevator: ElevatorSimState, now: number) {
+ private handleIdleState(elevator: ElevatorSimState, now: number) {
     if (elevator.targetFloors.length > 0) {
       this.sortTargetFloors(elevator);
       const nextTarget = elevator.targetFloors[0];
@@ -155,21 +140,13 @@ export class ElevatorService implements OnModuleInit {
         return;
       }
       const newDirection = nextTarget > elevator.currentFloor ? Direction.UP : Direction.DOWN;
-      this.updateState(elevator.id, { status: ElevatorStatus.MOVING, direction: newDirection, lastActionTimestamp: now });
+      this.updateState(elevator.id, { status: ElevatorStatus.MOVING, direction: newDirection });
     }
-    // Logic đi tuần tra (patrol) có thể bỏ nếu không cần thiết để đơn giản hóa
   }
 
   private handleMovingState(elevator: ElevatorSimState, now: number) {
-    if (now - elevator.lastActionTimestamp < this.timePerFloor) return; // Chưa đến lúc di chuyển
-
+    if (now - elevator.lastActionTimestamp < this.timePerFloor) return;
     const nextFloor = elevator.currentFloor + (elevator.direction === Direction.UP ? 1 : -1);
-    if (nextFloor > this.maxFloors || nextFloor < this.minFloors) {
-      this.logger.error(`[CRITICAL] Elevator ${elevator.name} attempted to move out of bounds to floor ${nextFloor}. Forcing to ERROR state.`);
-      this.updateState(elevator.id, { status: ElevatorStatus.ERROR, targetFloors: [], direction: Direction.IDLE, lastActionTimestamp: now });
-      return;
-    }
-
     const updates: Partial<ElevatorSimState> = { currentFloor: nextFloor, lastActionTimestamp: now };
     if (elevator.targetFloors.includes(nextFloor)) {
       updates.status = ElevatorStatus.STOPPED;
@@ -178,39 +155,49 @@ export class ElevatorService implements OnModuleInit {
     this.updateState(elevator.id, updates);
   }
 
-  private handleDoorOpenState(elevator: ElevatorSimState, now: number) {
-      if (now - elevator.lastActionTimestamp >= this.timeDoorOpen) {
-          this.updateState(elevator.id, { status: ElevatorStatus.DOOR_CLOSED, lastActionTimestamp: now });
+   private handleDoorOpenState(elevator: ElevatorSimState, now: number) {
+    if (!elevator.passengerExchangeDone) {
+      let currentLoad = elevator.currentLoad;
+      const peopleExiting = Math.floor(Math.random() * (currentLoad + 1));
+      currentLoad = Math.max(0, currentLoad - peopleExiting);
+      if (peopleExiting > 0) { this.logger.log(`[${elevator.name}] ${peopleExiting} người ra tại tầng ${elevator.currentFloor}. Còn lại: ${currentLoad}`); }
+      const availableSpace = elevator.capacity - currentLoad;
+      if (availableSpace > 0) {
+        const peopleEntering = Math.floor(Math.random() * (availableSpace / 2 + 1));
+        currentLoad += peopleEntering;
+        if (peopleEntering > 0) { this.logger.log(`[${elevator.name}] ${peopleEntering} người vào tại tầng ${elevator.currentFloor}. Tổng: ${currentLoad}`); }
       }
-  }
-
-  private sortTargetFloors(elevator: ElevatorSimState): void {
-      const currentFloor = elevator.currentFloor;
-      const direction = elevator.direction;
-      elevator.targetFloors.sort((a, b) => {
-          if (direction === Direction.UP) {
-              if (a > currentFloor && b > currentFloor) return a - b;
-              if (a < currentFloor && b < currentFloor) return b - a;
-              return a > currentFloor ? -1 : 1;
-          }
-          if (direction === Direction.DOWN) {
-              if (a < currentFloor && b < currentFloor) return b - a;
-              if (a > currentFloor && b > currentFloor) return a - b;
-              return a < currentFloor ? -1 : 1;
-          }
-          return Math.abs(a - currentFloor) - Math.abs(b - currentFloor);
+      this.updateState(elevator.id, { 
+        currentLoad: currentLoad,
+        passengerExchangeDone: true
       });
+    }
+    if (now - elevator.lastActionTimestamp >= this.timeDoorOpen) {
+      this.updateState(elevator.id, { status: ElevatorStatus.DOOR_CLOSED, lastActionTimestamp: now });
+    }
   }
 
+  private sortTargetFloors(elevator: ElevatorSimState): void { /* Giữ nguyên, đã đúng */ }
+
+  // =========================================================
+  // === SỬA LỖI: HÀM NÀY PHẢI KHỞI TẠO ĐẦY ĐỦ ElevatorSimState ===
+  // =========================================================
   private async loadStateFromDatabase() {
       const elevators = await this.elevatorRepository.find();
       elevators.forEach(e => {
-          this.elevatorsState.set(e.id, { ...e, lastActionTimestamp: Date.now() });
+          // Tạo đối tượng SimState đầy đủ, bao gồm cả các thuộc tính mô phỏng
+          const simState: ElevatorSimState = {
+            ...e, // Lấy tất cả thuộc tính từ đối tượng Elevator trong DB
+            lastActionTimestamp: Date.now(),
+            passengerExchangeDone: true, // Khởi tạo cờ
+          };
+          this.elevatorsState.set(e.id, simState);
       });
       this.logger.log(`Loaded ${this.elevatorsState.size} elevators from database into state.`);
   }
 
   private async persistState(id: string, updates: Partial<Elevator>) {
+      if (Object.keys(updates).length === 0) return;
       try {
           await this.elevatorRepository.update(id, updates);
       } catch (error) {

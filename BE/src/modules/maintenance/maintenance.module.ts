@@ -1,19 +1,20 @@
 // BE/src/modules/maintenance/maintenance.module.ts
 
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MaintenanceService } from './maintenance.service';
 import { MaintenanceController } from './maintenance.controller';
-import { Maintenance } from '../../entities/maintenance.entity';
-import { ElevatorModule } from '../elevator/elevator.module'; // SỬA LỖI: Import toàn bộ ElevatorModule
+import { MaintenanceLog } from '../../entities/maintenance.entity';
+import { ElevatorModule } from '../elevator/elevator.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Maintenance]), // Module này chỉ quản lý Maintenance entity
-    ElevatorModule, // SỬA LỖI: Bằng cách import ElevatorModule, tất cả các service đã export từ nó sẽ có sẵn để inject
+    TypeOrmModule.forFeature([MaintenanceLog]),
+    forwardRef(() => ElevatorModule), 
   ],
   controllers: [MaintenanceController],
-  // SỬA LỖI: Chỉ cung cấp service của chính module này
-  providers: [MaintenanceService], 
+  providers: [MaintenanceService],
+  // SỬA LỖI: Export service để các module khác (ElevatorModule) có thể inject nó
+  exports: [MaintenanceService],
 })
 export class MaintenanceModule {}

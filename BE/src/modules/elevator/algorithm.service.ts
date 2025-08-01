@@ -59,7 +59,6 @@ export class AlgorithmService implements OnModuleInit {
         this.isProcessing = false;
     }
   }
-
   private requeueRequest(request: CreateRequestDto, reason: string) {
     this.requestQueue.unshift(request);
     this.logger.warn(`[QUEUE] Re-queueing request ${request.fromFloor}->${request.toFloor}. Reason: ${reason}`);

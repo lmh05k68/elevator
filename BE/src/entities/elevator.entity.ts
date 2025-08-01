@@ -1,5 +1,7 @@
-// src/entities/elevator.entity.ts
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+// BE/src/entities/elevator.entity.ts
+
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
+import { MaintenanceLog } from './maintenance.entity';
 
 export enum ElevatorStatus {
   IDLE = 'Idle',
@@ -18,15 +20,16 @@ export enum Direction {
   IDLE = 'Idle',
 }
 
-@Entity()
+// === SỬA LỖI: CHỈ ĐỊNH RÕ TÊN BẢNG LÀ 'elevator' ===
+@Entity('elevator') // Luôn sử dụng bảng này, không bao giờ tạo bảng 'elevators'
 export class Elevator {
-  @PrimaryGeneratedColumn('uuid') // Sử dụng UUID cho ID duy nhất
+  @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ unique: true })
   name: string;
 
-  @Column({ default: 1 }) // Tầng mặc định ban đầu
+  @Column({ default: 1 })
   currentFloor: number;
 
   @Column({
@@ -43,15 +46,15 @@ export class Elevator {
   })
   status: ElevatorStatus;
 
-  @Column({ default: false })
-  isDoorOpen: boolean;
-
   @Column({ default: 0 })
   currentLoad: number;
 
   @Column({ default: 10 }) 
   capacity: number;
 
-  @Column('int', { array: true, default: [] }) // Dùng kiểu mảng của PostgreSQL
+  @Column('int', { array: true, default: [] })
   targetFloors: number[];
+
+  @OneToMany(() => MaintenanceLog, (maintenanceLog) => maintenanceLog.elevator)
+  maintenanceLogs: MaintenanceLog[];
 }

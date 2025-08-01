@@ -6,14 +6,14 @@ import {
   Post, 
   Body, 
   Param, 
-  Patch, 
+  Patch, // Import Patch
   HttpCode, 
   HttpStatus,
-  ParseUUIDPipe // Import Pipe để validate UUID
+  ParseUUIDPipe 
 } from '@nestjs/common';
 import { ElevatorService } from './elevator.service';
 import { CreateElevatorDto } from '../../dtos/create-elevator.dto';
-import { UpdateElevatorStatusDto } from '../../dtos/update-elevator-status.dto';
+import { UpdateElevatorStatusDto } from '../../dtos/update-elevator-status.dto'; // Đổi tên DTO cho phù hợp hơn
 import { Elevator } from '../../entities/elevator.entity';
 
 @Controller('elevators')
@@ -25,15 +25,10 @@ export class ElevatorController {
    * Tạo một thang máy mới.
    */
   @Post()
-  @HttpCode(HttpStatus.CREATED) // Trả về status 201 Created
+  @HttpCode(HttpStatus.CREATED)
   create(@Body() createElevatorDto: CreateElevatorDto): Promise<Elevator> {
     return this.elevatorService.create(createElevatorDto);
   }
-
-  /**
-   * GET /elevators
-   * Lấy danh sách tất cả các thang máy từ database.
-   */
   @Get()
   findAll(): Promise<Elevator[]> {
     return this.elevatorService.findAll();
@@ -42,11 +37,11 @@ export class ElevatorController {
   findOne(@Param('id', new ParseUUIDPipe()) id: string): Promise<Elevator> {
     return this.elevatorService.findOne(id);
   }
-  @Patch(':id/status')
+  @Patch(':id') 
   @HttpCode(HttpStatus.OK) 
   async updateStatus(
     @Param('id', new ParseUUIDPipe()) id: string, 
-    @Body() updateElevatorStatusDto: UpdateElevatorStatusDto,
+    @Body() updateElevatorStatusDto: UpdateElevatorStatusDto, 
   ): Promise<{ message: string }> {
     this.elevatorService.updateState(id, { status: updateElevatorStatusDto.status });
     
